@@ -53,6 +53,7 @@ from pylibrelinkup.exceptions import (
     AuthenticationError,
     PatientNotFoundError,
     PyLibreLinkUpError,
+    RedirectError,
 )
 from pylibrelinkup.models.data import GlucoseMeasurement, Patient
 
@@ -92,10 +93,27 @@ def _get_client(force_reauth: bool = False) -> PyLibreLinkUp:
                 "variables must be set before calling any LibreLinkUp tool."
             )
 
-        client = PyLibreLinkUp(email=email, password=password, api_url=_region())
-        client.authenticate()
-        _client = client
-        return _client
+        region = _region()
+        # LibreLinkUp accounts are pinned to whichever region they were
+        # created in. If LIBRELINKUP_REGION doesn't match, authenticate()
+        # raises RedirectError naming the correct region instead of logging
+        # you in — follow it (once) rather than leaving the client
+        # half-authenticated, which is what produces the confusing
+        # "missing or malformed jwt" error on the first real API call.
+        for _ in range(2):
+            client = PyLibreLinkUp(email=email, password=password, api_url=region)
+            try:
+                client.authenticate()
+            except RedirectError as redirect:
+                region = redirect.region
+                continue
+            _client = client
+            return _client
+
+        raise RuntimeError(
+            "LibreLinkUp kept redirecting between regions and never "
+            "completed login. Check LIBRELINKUP_REGION."
+        )
 
 
 def _call_with_retry(fn_name: str, *args, **kwargs) -> Any:
@@ -188,6 +206,19 @@ def _friendly_error(exc: Exception) -> str:
         return (
             "LibreLinkUp authentication failed. Check LIBRELINKUP_EMAIL, "
             "LIBRELINKUP_PASSWORD, and LIBRELINKUP_REGION."
+        )
+    if isinstance(exc, RedirectError):
+        return (
+            f"LibreLinkUp account belongs to region '{exc.region.name}', not "
+            f"the configured LIBRELINKUP_REGION. Set LIBRELINKUP_REGION="
+            f"{exc.region.name} and retry."
+        )
+    if "jwt" in str(exc).lower():
+        return (
+            "LibreLinkUp rejected the request as unauthenticated ('" + str(exc) + "'). "
+            "This usually means the account's actual data region doesn't match "
+            "LIBRELINKUP_REGION. Try LIBRELINKUP_REGION=EU (or your account's "
+            "actual region) and retry."
         )
     if isinstance(exc, PyLibreLinkUpError):
         return f"LibreLinkUp API error: {exc}"
