@@ -80,3 +80,11 @@ needed) and `get_current_glucose` on your behalf.
   `pylibrelinkup`; it is not affiliated with or endorsed by Abbott.
 - Credentials never leave environment variables passed to the process — the
   server does not log or persist them.
+
+## Troubleshooting Guide
+
+- Verify that your LibreLinkUp account has API access enabled and at least one linked sensor.
+- Ensure the pylibrelinkup client (v0.10.0+) sends the Authorization: Bearer * and Account‑Id: <sha256(user-id)> headers; if not, update the library or manually add those headers in your code.
+- If you see 400 Bad Request – missing or malformed jwt`, double‑check credentials, region, and that 2FA is disabled or you’re using an app‑specific password.
+
+That’s the only specific guidance needed.
